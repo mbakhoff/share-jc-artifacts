@@ -46,6 +46,8 @@ public class JCVirtualFile extends VirtualFile {
 
   @Override
   public boolean isDirectory() {
+    if (isFile())
+      return false;
     SortedMap<Path, S3ObjectSummary> tail = objects.tailMap(path);
     return !tail.isEmpty() && tail.firstKey().startsWith(path);
   }

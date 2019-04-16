@@ -51,17 +51,21 @@ public class KnownHostVerifier implements ServerHostKeyVerifier {
   static class KeyEntry {
     final List<String> names;
     final String type;
-    final byte[] key;
+    final String encodedKey;
 
     KeyEntry(String line) {
       String[] parts = line.split(" ");
       names = Arrays.asList(parts[0].split(","));
       type = parts[1];
-      key = Base64.getDecoder().decode(parts[2]);
+      encodedKey = parts[2];
+    }
+
+    byte[] key() {
+      return Base64.getDecoder().decode(encodedKey);
     }
 
     public boolean matches(String hostname, String serverHostKeyAlgorithm, byte[] serverHostKey) {
-      return names.contains(hostname) && type.equals(serverHostKeyAlgorithm) && Arrays.equals(key, serverHostKey);
+      return names.contains(hostname) && type.equals(serverHostKeyAlgorithm) && Arrays.equals(key(), serverHostKey);
     }
 
     @Override

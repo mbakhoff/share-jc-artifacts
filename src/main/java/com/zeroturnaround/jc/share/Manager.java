@@ -43,12 +43,12 @@ import jenkins.util.VirtualFile;
 public class Manager extends ArtifactManager {
 
   private static final String AWS_CRED_ID = "jenkins.zing";
-  private static final String SSH_CRED_ID = "ZT_AUTOMATOR_CREDENTIALS";
+  private static final String SSH_CRED_ID = "ssh-zeroturnaround";
   private static final String REGION = "us-east-1";
   private static final String BUCKET = "share.jc.zt";
 
   private transient AbstractBuild<?, ?> build;
-  private static final ServerHostKeyVerifier verifier = new KnownHostVerifier();
+  private transient ServerHostKeyVerifier verifier;
 
   public Manager() {
   }
@@ -60,6 +60,7 @@ public class Manager extends ArtifactManager {
   @Override
   public void onLoad(Run<?, ?> build) {
     this.build = (AbstractBuild<?, ?>) build;
+    this.verifier = new KnownHostVerifier();
   }
 
   @Override
@@ -103,7 +104,7 @@ public class Manager extends ArtifactManager {
     Path basePath = getShareBase();
     Connection c = new Connection(host);
     try {
-      prepareSsh(c);
+      prepareSsh(c, null);
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       if (c.exec("rm -rf " + basePath, out) != 0)
         throw new IOException("host: rm -rf " + basePath + ": " + out.toString("UTF-8"));
@@ -168,7 +169,7 @@ public class Manager extends ArtifactManager {
     listener.getLogger().println("uploading to " + host);
     Connection c = new Connection(host);
     try {
-      prepareSsh(c);
+      prepareSsh(c, listener);
       SCPClient scpClient = c.createSCPClient();
       for (Map.Entry<String, String> entry : artifacts.entrySet()) {
         Path from = temp.resolve(entry.getValue());
@@ -184,10 +185,10 @@ public class Manager extends ArtifactManager {
     }
   }
 
-  private void prepareSsh(Connection c) throws IOException, InterruptedException {
+  private void prepareSsh(Connection c, BuildListener listener) throws IOException, InterruptedException {
     c.setServerHostKeyAlgorithms(new String[]{"ecdsa-sha2-nistp256"});
     c.connect(verifier);
-    if (!SSHAuthenticator.newInstance(c, findSshCredential(SSH_CRED_ID)).authenticate(null))
+    if (!SSHAuthenticator.newInstance(c, findSshCredential(SSH_CRED_ID)).authenticate(listener))
       throw new IOException("authenticate failed for host=" + c.getHostname() + " cred=" + SSH_CRED_ID);
   }
 
