@@ -99,7 +99,7 @@ public class JCVirtualFile extends VirtualFile {
 
   @Override
   public boolean canRead() {
-    return isFile();
+    return exists();
   }
 
   @Override
