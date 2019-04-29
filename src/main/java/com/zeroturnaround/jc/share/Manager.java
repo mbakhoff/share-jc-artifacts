@@ -3,6 +3,8 @@ package com.zeroturnaround.jc.share;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -12,6 +14,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.apache.commons.io.FileUtils;
 
@@ -42,6 +46,8 @@ import jenkins.util.VirtualFile;
 
 public class Manager extends ArtifactManager {
 
+  private static final Logger LOG = Logger.getLogger(Manager.class.getName());
+
   private static final String AWS_CRED_ID = "jenkins.zing";
   private static final String SSH_CRED_ID = "ssh-zeroturnaround";
   private static final String REGION = "us-east-1";
@@ -70,9 +76,10 @@ public class Manager extends ArtifactManager {
       listener.getLogger().println("publishing artifacts for " + build);
       listener.getLogger().println("downloading from agent: " + artifacts);
       workspace.copyRecursiveTo(new FilePath.ExplicitlySpecifiedDirScanner(artifacts), new FilePath(temp.toFile()), getClass().getName());
-      copyToS3(listener, temp, artifacts);
+      List<S3ObjectSummary> objectSummaries = copyToS3(listener, temp, artifacts);
       copyToShare("raven.jc.zt", listener, temp, artifacts);
       copyToShare("fatboy.jc.zt", listener, temp, artifacts);
+      writeCache(objectSummaries);
       listener.getLogger().println("artifacts published");
     }
     finally {
@@ -80,8 +87,17 @@ public class Manager extends ArtifactManager {
     }
   }
 
+  private void writeCache(List<S3ObjectSummary> objectSummaries) throws IOException {
+    Path cachePath = getObjectCachePath();
+    Files.createDirectories(cachePath.getParent());
+    try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(cachePath))) {
+      out.writeObject(objectSummaries);
+    }
+  }
+
   @Override
   public boolean delete() throws IOException, InterruptedException {
+    Files.deleteIfExists(getObjectCachePath());
     IOException ex = null;
     try {
       deleteFromShare("fatboy.jc.zt");
@@ -135,13 +151,15 @@ public class Manager extends ArtifactManager {
   @Override
   public VirtualFile root() {
     Path basePath = getS3Base();
-    AmazonS3 s3 = buildClient();
-    List<S3ObjectSummary> allItems;
-    try {
-      allItems = listAllObjects(s3, basePath);
-    }
-    finally {
-      s3.shutdown();
+    List<S3ObjectSummary> allItems = readCached();
+    if (allItems == null) {
+      AmazonS3 s3 = buildClient();
+      try {
+        allItems = listAllObjects(s3, basePath);
+      }
+      finally {
+        s3.shutdown();
+      }
     }
 
     SortedMap<Path, S3ObjectSummary> itemMap = new TreeMap<>();
@@ -150,6 +168,25 @@ public class Manager extends ArtifactManager {
     }
 
     return new JCVirtualFile(itemMap, "http://share.jc.zt/", basePath);
+  }
+
+  private List<S3ObjectSummary> readCached() {
+    Path objectsCache = getObjectCachePath();
+    if (!Files.isRegularFile(objectsCache)) {
+      return null;
+    }
+
+    try (ObjectInputStream is = new ObjectInputStream(Files.newInputStream(objectsCache))) {
+      return (List<S3ObjectSummary>) is.readObject();
+    }
+    catch (Exception e) {
+      LOG.log(Level.SEVERE, "failed to read artifact cache of " + build, e);
+      return null;
+    }
+  }
+
+  private Path getObjectCachePath() {
+    return build.getArtifactsDir().toPath().resolve("objects.bin");
   }
 
   private List<S3ObjectSummary> listAllObjects(AmazonS3 s3, Path basePath) {
@@ -192,7 +229,7 @@ public class Manager extends ArtifactManager {
       throw new IOException("authenticate failed for host=" + c.getHostname() + " cred=" + SSH_CRED_ID);
   }
 
-  private void copyToS3(BuildListener listener, Path temp, Map<String, String> artifacts) throws InterruptedException {
+  private List<S3ObjectSummary> copyToS3(BuildListener listener, Path temp, Map<String, String> artifacts) throws InterruptedException {
     listener.getLogger().println("uploading to s3");
     Path basePath = getS3Base();
     TransferManager manager = TransferManagerBuilder.standard().withS3Client(buildClient()).build();
@@ -203,6 +240,7 @@ public class Manager extends ArtifactManager {
         listener.getLogger().println("s3: " + localPath + " -> " + remotePath);
         manager.upload(new PutObjectRequest(BUCKET, remotePath, localPath)).waitForCompletion();
       }
+      return listAllObjects(manager.getAmazonS3Client(), basePath);
     }
     finally {
       manager.shutdownNow(true);
