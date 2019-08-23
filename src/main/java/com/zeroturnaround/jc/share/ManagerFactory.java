@@ -33,7 +33,7 @@ public class ManagerFactory extends ArtifactManagerFactory {
   public static final class DescriptorImpl extends ArtifactManagerFactoryDescriptor {
     @Override
     public String getDisplayName() {
-      return "Mirror artifacts from jr-agent-copy-artifacts into zt-devel S3, raven.jc.zt and fatboy.jc.zt";
+      return "Mirror artifacts from jr-agent-copy-artifacts into zt-devel S3 and raven.jc.zt";
     }
   }
 }

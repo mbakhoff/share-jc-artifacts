@@ -78,7 +78,6 @@ public class Manager extends ArtifactManager {
       workspace.copyRecursiveTo(new FilePath.ExplicitlySpecifiedDirScanner(artifacts), new FilePath(temp.toFile()), getClass().getName());
       List<S3ObjectSummary> objectSummaries = copyToS3(listener, temp, artifacts);
       copyToShare("raven.jc.zt", listener, temp, artifacts);
-      copyToShare("fatboy.jc.zt", listener, temp, artifacts);
       writeCache(objectSummaries);
       listener.getLogger().println("artifacts published");
     }
@@ -99,11 +98,6 @@ public class Manager extends ArtifactManager {
   public boolean delete() throws IOException, InterruptedException {
     Files.deleteIfExists(getObjectCachePath());
     IOException ex = null;
-    try {
-      deleteFromShare("fatboy.jc.zt");
-    } catch (IOException e) {
-      ex = e;
-    }
     try {
       deleteFromShare("raven.jc.zt");
     } catch (IOException e) {
